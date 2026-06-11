@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal API Key & Model Tester</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; max-width: 800px; margin: auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, select, button { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
+        #chat-box { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #fafafa; margin-bottom: 10px; border-radius: 4px; }
+        .message { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
+        .user { background-color: #e3f2fd; text-align: right; }
+        .assistant { background-color: #e8f5e9; text-align: left; }
+        .error { color: red; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+    <h2 style="text-align: center;">Universal API Tester</h2>
+
+    <div class="card">
+        <h3>1. Setup Connection</h3>
+        <label>Base URL (e.g., https://api.openai.com/v1 or https://api.groq.com/openai/v1)</label>
+        <input type="text" id="baseUrl" placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+        
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="Enter your API Key here">
+        
+        <button onclick="fetchModels()" id="fetchBtn">Fetch Models</button>
+        <p id="modelStatus" class="error"></p>
+
+        <label>Select Model</label>
+        <select id="modelSelect">
+            <option value="">Fetch models first...</option>
+        </select>
+    </div>
+
+    <div class="card" id="chatSection" style="display:none;">
+        <h3>2. Test Model (Chat)</h3>
+        <div id="chat-box"></div>
+        <input type="text" id="chatInput" placeholder="Type a message to test the model...">
+        <button onclick="sendMessage()">Send Message</button>
+    </div>
+
+    <script>
+        let chatHistory = [];
+
+        async function fetchModels() {
+            const apiKey = document.getElementById('apiKey').value;
+            const baseUrl = document.getElementById('baseUrl').value;
+            const statusText = document.getElementById('modelStatus');
+            const modelSelect = document.getElementById('modelSelect');
+            const fetchBtn = document.getElementById('fetchBtn');
+
+            if (!apiKey) {
+                statusText.innerText = "Please enter an API Key first.";
+                return;
+            }
+
+            fetchBtn.innerText = "Fetching...";
+            statusText.innerText = "";
+            modelSelect.innerHTML = "<option value=''>Loading models...</option>";
+
+            try {
+                const response = await fetch('/api/models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey, baseUrl })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.data) {
+                    modelSelect.innerHTML = "";
+                    data.data.sort((a, b) => a.id.localeCompare(b.id)).forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.id;
+                        option.innerText = model.id;
+                        modelSelect.appendChild(option);
+                    });
+                    document.getElementById('chatSection').style.display = 'block';
+                    fetchBtn.innerText = "Models Fetched Successfully!";
+                } else {
+                    statusText.innerText = data.error || "Failed to fetch models.";
+                    modelSelect.innerHTML = "<option value=''>Failed to load</option>";
+                    fetchBtn.innerText = "Fetch Models";
+                }
+            } catch (error) {
+                statusText.innerText = "Network error occurred.";
+                fetchBtn.innerText = "Fetch Models";
+            }
+        }
+
+        async function sendMessage() {
+            const apiKey = document.getElementById('apiKey').value;
+            const baseUrl = document.getElementById('baseUrl').value;
+            const model = document.getElementById('modelSelect').value;
+            const chatInput = document.getElementById('chatInput');
+            const chatBox = document.getElementById('chat-box');
+            const message = chatInput.value.trim();
+
+            if (!message || !model) return;
+
+            chatBox.innerHTML += `<div class="message user"><b>You:</b> ${message}</div>`;
+            chatInput.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            chatHistory.push({ role: "user", content: message });
+
+            const loadingId = "loading-" + Date.now();
+            chatBox.innerHTML += `<div class="message assistant" id="${loadingId}"><i>Model is typing...</i></div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey, baseUrl, model, messages: chatHistory })
+                });
+
+                const data = await response.json();
+                document.getElementById(loadingId).remove();
+
+                if (response.ok && data.choices) {
+                    const reply = data.choices[0].message.content;
+                    chatBox.innerHTML += `<div class="message assistant"><b>${model}:</b> ${reply}</div>`;
+                    chatHistory.push({ role: "assistant", content: reply });
+                } else {
+                    chatBox.innerHTML += `<div class="message error"><b>Error:</b> ${data.error || "Something went wrong."}</div>`;
+                    chatHistory.pop();
+                }
+            } catch (error) {
+                document.getElementById(loadingId).remove();
+                chatBox.innerHTML += `<div class="message error"><b>Error:</b> Network issue.</div>`;
+                chatHistory.pop();
+            }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
